@@ -117,3 +117,35 @@ uv run pytest
 ```bash
 uv run python -m unittest discover -s tests
 ```
+
+---
+
+## استقرار با داکر (Docker)
+
+پروژه دارای یک `Dockerfile` چندمرحله‌ای (Multi-stage) منطبق با بهترین الگوهای رسمی `uv` است:
+- **مرحله ساخت (Builder):** استفاده از ایمیج رسمی `python:3.14-slim` و باینری پین‌شده `uv`، کش لایه‌ای برای وابستگی‌های قفل‌شده (`uv.lock`)، و نصب پروژه در حالت غیرقابل ویرایش (`--no-editable`).
+- **مرحله اجرا (Runtime):** فقط محیط مجازی خروجی به یک ایمیج تر و تمیز منتقل می‌شود؛ اجرای ربات تحت کاربر غیرریشه (`appuser:appgroup` با شناسه 10001) و بدون ابزارهای بیلد انجام می‌پذیرد.
+
+### ساخت ایمیج داکر به صورت لوکال
+
+```bash
+docker build -t daretirbot .
+```
+
+### اجرای کانتینر
+
+با توجه به اینکه ربات از روش Long-polling تلگرام استفاده می‌کند، **تنها یک کانتینر فعال** باید همزمان در حال اجرا باشد و به شبکه خروجی اینترنت دسترسی داشته باشد:
+
+```bash
+docker run -d \
+  --name daretirbot \
+  --restart unless-stopped \
+  --env-file .env \
+  daretirbot
+```
+
+مشاهده لاگ‌ها:
+
+```bash
+docker logs -f daretirbot
+```

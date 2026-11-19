@@ -1,0 +1,44 @@
+# Git & GitHub
+.git
+.gitignore
+.github
+
+# Virtual environments
+.venv
+venv/
+ENV/
+env/
+
+# Environment and secrets
+.env
+.env.*
+*.env
+
+# Python caches and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Tests & development files
+tests/
+test/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Editor / OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
