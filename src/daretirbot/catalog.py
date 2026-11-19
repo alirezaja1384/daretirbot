@@ -257,17 +257,26 @@ class DaretClient:
 
 
 class CatalogCache:
-    """In-memory cache for doors with TTL and background refresh."""
+    """In-memory cache for doors with TTL and on-demand refresh.
 
-    def __init__(self, client: DaretClient, ttl_seconds: int = 300):
+    Checks if the catalog is stale on request, triggering a shared background refresh.
+    Waits up to max_wait_seconds; if the refresh takes longer or fails, falls back
+    to the stale cache without cancelling the ongoing refresh process.
+    """
+
+    def __init__(
+        self,
+        client: DaretClient,
+        ttl_seconds: int = 300,
+        max_wait_seconds: float = 5.0,
+    ):
         self.client = client
         self.ttl_seconds = max(10, ttl_seconds)
+        self.max_wait_seconds = max(0.1, max_wait_seconds)
         self._doors: list[Door] = []
         self._doors_by_slug: dict[str, Door] = {}
         self._last_updated: float = 0.0
-        self._lock = asyncio.Lock()
-        self._bg_task: asyncio.Task[None] | None = None
-        self._running = False
+        self._refresh_task: asyncio.Task[list[Door]] | None = None
 
     @property
     def is_expired(self) -> bool:
@@ -280,10 +289,93 @@ class CatalogCache:
     def doors_count(self) -> int:
         return len(self._doors)
 
-    async def get_doors(self) -> list[Door]:
-        """Return cached doors, refreshing if empty or expired."""
-        if not self._doors:
-            await self.refresh()
+    def _ensure_refresh_task(self) -> asyncio.Task[list[Door]]:
+        """Ensure a single shared refresh task is running."""
+        if self._refresh_task is None or self._refresh_task.done():
+            self._refresh_task = asyncio.create_task(
+                self._run_refresh(), name="daret_catalog_refresh"
+            )
+        return self._refresh_task
+
+    async def _run_refresh(self) -> list[Door]:
+        """Perform scraping and atomically update cache state."""
+        try:
+            logger.info("Refreshing daret.ir doors catalog...")
+            fresh_doors = await self.client.fetch_all_doors()
+            if fresh_doors:
+                self._doors = fresh_doors
+                self._doors_by_slug = {d.slug.lower(): d for d in fresh_doors}
+                self._last_updated = time.monotonic()
+                logger.info(
+                    "Catalog updated with %d doors. Next check after TTL (%ds)",
+                    len(fresh_doors),
+                    self.ttl_seconds,
+                )
+            else:
+                logger.warning(
+                    "Scraper returned 0 doors; keeping existing cache (%d doors)",
+                    len(self._doors),
+                )
+        except asyncio.CancelledError:
+            raise
+        except (httpx.HTTPError, TimeoutError, OSError) as e:
+            logger.error(
+                "Failed to refresh catalog: %s. Keeping existing cache (%d doors)",
+                e,
+                len(self._doors),
+            )
+        except Exception as e:
+            logger.exception("Unexpected error refreshing catalog: %s", e)
+        finally:
+            if self._refresh_task is asyncio.current_task():
+                self._refresh_task = None
+
+        return list(self._doors)
+
+    async def refresh(self, force: bool = False) -> list[Door]:
+        """Trigger or join single-flight catalog refresh and wait for completion."""
+        if force or not self._doors or self.is_expired:
+            task = self._ensure_refresh_task()
+            try:
+                await asyncio.shield(task)
+            except Exception:
+                pass
+        return list(self._doors)
+
+    async def get_doors(self, max_wait_seconds: float | None = None) -> list[Door]:
+        """Return cached doors.
+
+        If cache is stale or empty, triggers refresh and waits up to max_wait_seconds.
+        If refresh fails or takes longer than the wait cap, falls back to stale cache
+        without cancelling the background refresh process.
+        """
+        # If populated and fresh, return immediately without network access
+        if self._doors and not self.is_expired:
+            return list(self._doors)
+
+        # Stale or empty: ensure shared refresh task is running
+        task = self._ensure_refresh_task()
+        wait_cap = (
+            self.max_wait_seconds
+            if max_wait_seconds is None
+            else max(0.0, max_wait_seconds)
+        )
+
+        if wait_cap > 0:
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=wait_cap)
+            except TimeoutError:
+                logger.warning(
+                    "Catalog refresh took longer than %.1fs cap; serving %s cache while refresh continues in background",
+                    wait_cap,
+                    "stale" if self._doors else "empty",
+                )
+            except Exception as e:
+                logger.warning(
+                    "Catalog refresh encountered error while waiting: %s; serving stale cache",
+                    e,
+                )
+
         return list(self._doors)
 
     def get_doors_sync(self) -> list[Door]:
@@ -332,77 +424,22 @@ class CatalogCache:
         results.sort(key=lambda item: item[0], reverse=True)
         return [door for _, door in results]
 
-    async def refresh(self) -> list[Door]:
-        """Single-flight catalog refresh."""
-        async with self._lock:
-            # Recheck expiration under lock
-            if self._doors and not self.is_expired:
-                return list(self._doors)
-
+    async def close(self) -> None:
+        """Cancel and await any active in-flight refresh task on shutdown."""
+        task = self._refresh_task
+        if task and not task.done():
+            task.cancel()
             try:
-                logger.info("Refreshing daret.ir doors catalog...")
-                fresh_doors = await self.client.fetch_all_doors()
-                if fresh_doors:
-                    self._doors = fresh_doors
-                    self._doors_by_slug = {d.slug.lower(): d for d in fresh_doors}
-                    self._last_updated = time.monotonic()
-                    logger.info(
-                        "Catalog updated with %d doors. Next refresh in %ds",
-                        len(fresh_doors),
-                        self.ttl_seconds,
-                    )
-                else:
-                    logger.warning(
-                        "Scraper returned 0 doors; keeping existing cache (%d doors)",
-                        len(self._doors),
-                    )
-            except (httpx.HTTPError, TimeoutError, OSError) as e:
-                logger.error(
-                    "Failed to refresh catalog: %s. Keeping existing cache (%d doors)",
-                    e,
-                    len(self._doors),
-                )
-
-            return list(self._doors)
-
-    async def _refresh_loop(self) -> None:
-        """Background worker that periodically refreshes the cache."""
-        while self._running:
-            try:
-                # Sleep in small intervals to allow responsive shutdown
-                sleep_duration = self.ttl_seconds
-                for _ in range(int(sleep_duration)):
-                    if not self._running:
-                        break
-                    await asyncio.sleep(1)
-
-                if self._running:
-                    await self.refresh()
-            except asyncio.CancelledError:
-                break
-            except (httpx.HTTPError, TimeoutError, OSError) as e:
-                logger.error("Error in background catalog refresh loop: %s", e)
-                await asyncio.sleep(30)  # Retry after 30 seconds on failure
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._refresh_task = None
+        logger.info("Catalog cache closed")
 
     def start_background_worker(self) -> None:
-        """Start the background refresh task."""
-        if self._bg_task is None or self._bg_task.done():
-            self._running = True
-            self._bg_task = asyncio.create_task(
-                self._refresh_loop(), name="daret_cache_worker"
-            )
-            logger.info(
-                "Catalog background worker started with TTL=%ds", self.ttl_seconds
-            )
+        """Deprecated: periodic background worker removed in favor of demand-driven refresh."""
+        pass
 
     async def stop_background_worker(self) -> None:
-        """Stop the background worker."""
-        self._running = False
-        if self._bg_task and not self._bg_task.done():
-            self._bg_task.cancel()
-            try:
-                await self._bg_task
-            except asyncio.CancelledError:
-                pass
-            self._bg_task = None
-            logger.info("Catalog background worker stopped")
+        """Deprecated alias for close()."""
+        await self.close()

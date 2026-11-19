@@ -42,16 +42,18 @@ async def run_bot(settings: Settings | None = None) -> None:
         timeout=settings.http_timeout,
         concurrency=settings.scrape_concurrency,
     )
-    cache = CatalogCache(client=daret_client, ttl_seconds=settings.cache_ttl_seconds)
+    cache = CatalogCache(
+        client=daret_client,
+        ttl_seconds=settings.cache_ttl_seconds,
+        max_wait_seconds=settings.cache_refresh_max_wait_seconds,
+    )
 
     # Pre-warm catalog
     try:
         logger.info("Pre-warming daret.ir catalog on startup...")
         await cache.refresh()
     except Exception as e:
-        logger.warning("Initial catalog fetch failed: %s (will retry in background)", e)
-
-    cache.start_background_worker()
+        logger.warning("Initial catalog fetch failed: %s (will fetch on demand)", e)
 
     # Initialize bot & dispatcher
     bot = Bot(
@@ -82,7 +84,7 @@ async def run_bot(settings: Settings | None = None) -> None:
         logger.error("Bot polling stopped with error: %s", e)
     finally:
         logger.info("Cleaning up bot resources...")
-        await cache.stop_background_worker()
+        await cache.close()
         await daret_client.close()
         await bot.session.close()
         logger.info("Shutdown complete.")

@@ -15,6 +15,7 @@ class Settings:
     http_timeout: float = 15.0
     inline_cache_time: int = 10
     scrape_concurrency: int = 5
+    cache_refresh_max_wait_seconds: float = 5.0
 
 
 def load_settings(env_file_path: Path | str | None = None) -> Settings:
@@ -35,6 +36,9 @@ def load_settings(env_file_path: Path | str | None = None) -> Settings:
     http_timeout = cfg("HTTP_TIMEOUT_SECONDS", default=15.0, cast=float)
     inline_cache_time = cfg("INLINE_CACHE_TTL_SECONDS", default=10, cast=int)
     scrape_concurrency = cfg("SCRAPE_CONCURRENCY", default=5, cast=int)
+    cache_refresh_max_wait = cfg(
+        "DOORS_CACHE_REFRESH_MAX_WAIT_SECONDS", default=5.0, cast=float
+    )
 
     return Settings(
         bot_token=token,
@@ -43,4 +47,5 @@ def load_settings(env_file_path: Path | str | None = None) -> Settings:
         http_timeout=max(1.0, http_timeout),
         inline_cache_time=max(0, inline_cache_time),
         scrape_concurrency=max(1, scrape_concurrency),
+        cache_refresh_max_wait_seconds=max(0.1, cache_refresh_max_wait),
     )

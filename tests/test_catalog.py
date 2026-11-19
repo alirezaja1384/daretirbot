@@ -267,3 +267,121 @@ class TestAsyncCatalog(IsolatedAsyncioTestCase):
         res = await cache.refresh()
         self.assertEqual(len(res), 1)
         self.assertEqual(res[0].slug, "saloon")
+
+    async def test_stale_cache_refreshed_on_request(self) -> None:
+        """When cache is stale, get_doors triggers refresh on-demand."""
+        initial_doors = [
+            Door(
+                slug="old-door",
+                title="در قدیمی",
+                description="قدیمی",
+                url="https://daret.ir/door/old-door",
+                image_url="https://daret.ir/doors/old-door.jpg",
+                thumb_url="https://daret.ir/doors/old-door.jpg",
+            )
+        ]
+        fresh_doors = [
+            Door(
+                slug="new-door",
+                title="در جدید",
+                description="جدید",
+                url="https://daret.ir/door/new-door",
+                image_url="https://daret.ir/doors/new-door.jpg",
+                thumb_url="https://daret.ir/doors/new-door.jpg",
+            )
+        ]
+        mock_client = AsyncMock(spec=DaretClient)
+        mock_client.fetch_all_doors.return_value = fresh_doors
+
+        cache = CatalogCache(client=mock_client, ttl_seconds=10)
+        cache._doors = initial_doors
+        cache._doors_by_slug = {"old-door": initial_doors[0]}
+        cache._last_updated = 0.0  # Force stale
+        self.assertTrue(cache.is_expired)
+
+        result = await cache.get_doors()
+        self.assertEqual(result, fresh_doors)
+        self.assertFalse(cache.is_expired)
+        mock_client.fetch_all_doors.assert_called_once()
+
+    async def test_timeout_fallback_to_stale_and_refresh_survives(self) -> None:
+        """If refresh exceeds wait cap, get_doors returns stale cache, and refresh task continues."""
+        stale_doors = [
+            Door(
+                slug="stale-door",
+                title="در قدیمی",
+                description="قدیمی",
+                url="https://daret.ir/door/stale-door",
+                image_url="https://daret.ir/doors/stale-door.jpg",
+                thumb_url="https://daret.ir/doors/stale-door.jpg",
+            )
+        ]
+        fresh_doors = [
+            Door(
+                slug="fresh-door",
+                title="در تازه",
+                description="تازه",
+                url="https://daret.ir/door/fresh-door",
+                image_url="https://daret.ir/doors/fresh-door.jpg",
+                thumb_url="https://daret.ir/doors/fresh-door.jpg",
+            )
+        ]
+
+        async def slow_fetch() -> list[Door]:
+            await asyncio.sleep(0.15)
+            return fresh_doors
+
+        mock_client = AsyncMock(spec=DaretClient)
+        mock_client.fetch_all_doors.side_effect = slow_fetch
+
+        cache = CatalogCache(client=mock_client, ttl_seconds=10, max_wait_seconds=0.03)
+        cache._doors = stale_doors
+        cache._doors_by_slug = {"stale-door": stale_doors[0]}
+        cache._last_updated = 0.0
+        self.assertTrue(cache.is_expired)
+
+        # Call get_doors with small wait cap
+        result = await cache.get_doors(max_wait_seconds=0.03)
+        # Should return stale doors immediately without waiting for slow fetch
+        self.assertEqual(result, stale_doors)
+        # Verify the background task is still running (was not cancelled)
+        self.assertIsNotNone(cache._refresh_task)
+        self.assertFalse(cache._refresh_task.done())
+
+        # Wait for the background task to complete
+        await asyncio.sleep(0.18)
+        # Now cache should be updated with fresh doors
+        self.assertEqual(cache.get_doors_sync(), fresh_doors)
+        self.assertFalse(cache.is_expired)
+
+    async def test_concurrent_requests_share_refresh_task(self) -> None:
+        """Multiple concurrent requests when stale share the single in-flight refresh task."""
+        doors = [
+            Door(
+                slug="shared-door",
+                title="در مشترک",
+                description="توضیح",
+                url="https://daret.ir/door/shared-door",
+                image_url="https://daret.ir/doors/shared-door.jpg",
+                thumb_url="https://daret.ir/doors/shared-door.jpg",
+            )
+        ]
+
+        async def slow_fetch() -> list[Door]:
+            await asyncio.sleep(0.05)
+            return doors
+
+        mock_client = AsyncMock(spec=DaretClient)
+        mock_client.fetch_all_doors.side_effect = slow_fetch
+
+        cache = CatalogCache(client=mock_client, ttl_seconds=10, max_wait_seconds=1.0)
+        cache._last_updated = 0.0
+        self.assertTrue(cache.is_expired)
+
+        # Concurrent requests
+        res1, res2 = await asyncio.gather(cache.get_doors(), cache.get_doors())
+        self.assertEqual(res1, doors)
+        self.assertEqual(res2, doors)
+        # Underlying scraper called exactly once
+        mock_client.fetch_all_doors.assert_called_once()
+        await cache.close()
