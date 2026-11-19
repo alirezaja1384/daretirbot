@@ -132,7 +132,39 @@ uv run python -m unittest discover -s tests
 docker build -t daretirbot .
 ```
 
-### اجرای کانتینر
+### اجرا با داکر کامپوز (Docker Compose)
+
+برای استقرار و اجرای ساده از طریق Docker Compose، می‌توانید یک فایل `compose.yaml` با استفاده از ایمیج رسمی منتشرشده در GHCR (با تگ نسخه ماژور `:0`) بسازید:
+
+```yaml
+services:
+  daretirbot:
+    image: ghcr.io/alirezaja1384/daretirbot:0
+    container_name: daretirbot
+    restart: unless-stopped
+    env_file:
+      - .env
+```
+
+سپس دستورات زیر را اجرا کنید:
+
+```bash
+docker compose up -d
+```
+
+مشاهده لاگ‌ها:
+
+```bash
+docker compose logs -f
+```
+
+متوقف کردن:
+
+```bash
+docker compose down
+```
+
+### اجرای مستقیم کانتینر با داکر
 
 با توجه به اینکه ربات از روش Long-polling تلگرام استفاده می‌کند، **تنها یک کانتینر فعال** باید همزمان در حال اجرا باشد و به شبکه خروجی اینترنت دسترسی داشته باشد:
 
@@ -155,30 +187,7 @@ docker logs -f daretirbot
 ایمیج‌های رسمی پس از هر انتشار به صورت خودکار در GitHub Container Registry منتشر می‌شوند:
 
 ```bash
-docker pull ghcr.io/alirezaja1384/daretirbot:latest
-docker run -d --name daretirbot --restart unless-stopped --env-file .env ghcr.io/alirezaja1384/daretirbot:latest
+docker pull ghcr.io/alirezaja1384/daretirbot:0
+docker run -d --name daretirbot --restart unless-stopped --env-file .env ghcr.io/alirezaja1384/daretirbot:0
 ```
-
----
-
-## پایپ‌لاین CI/CD و نسخه‌گذاری معنایی (Semantic Release)
-
-این پروژه مجهز به گردش‌کارهای خودکار گیت‌هاب اکشنز (GitHub Actions) است:
-
-1. **اعتبارسنجی پول‌ریکوئست‌ها (`.github/workflows/ci.yaml`):**
-   - نصب خودکار ابزار `uv` و کش وابستگی‌ها.
-   - اجرای تمام تست‌های خودکار با `pytest`.
-   - اعتبارسنجی بیلد پکیج توزیع پایتون (`uv build`).
-   - بیلد آزمایشی ایمیج داکر به صورت لوکال و تست بررسی سلامت (Smoke test) با ایمپورت موفق ماژول در کانتینر.
-
-2. **نسخه‌گذاری خودکار و انتشار ایمیج (`.github/workflows/release.yaml`):**
-   - با پوش یا مرج شدن در برنچ `main` فعال می‌شود.
-   - ابتدا مجدداً تست‌ها و بیلد اعتبارسنجی می‌شوند.
-   - بر اساس ساختار **Conventional Commits**، تگ معنایی بعدی محاسبه و به گیت ارسال می‌شود:
-     - کامیت‌های معمولی یا `fix:` -> ارتقای **Patch** (پیش‌فرض).
-     - کامیت‌های `feat:` -> ارتقای **Minor**.
-     - کامیت‌های دارای `BREAKING CHANGE:` یا `!` -> ارتقای **Major**.
-     - با درج `#skip-release` می‌توان از صدور نسخه جدید صرف‌نظر کرد.
-   - انتشار گیت‌هاب (GitHub Release) همراه با لیست تغییرات (Changelog) خودکار ثبت می‌شود.
-   - ایمیج نهایی به همراه تگ‌های معنایی کامل (`x.y.z`، `x.y`، `x`، `latest` و `sha-*`) در رجیستری `ghcr.io` بیلد و پوش می‌گردد.
 

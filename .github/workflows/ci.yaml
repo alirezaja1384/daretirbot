@@ -1,66 +1,66 @@
 name: CI
 
 on:
-    pull_request:
-        branches:
-            - main
+  pull_request:
+    branches:
+      - main
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.ref }}
-    cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
-    contents: read
+  contents: read
 
 jobs:
-    test:
-        name: Run tests and validation
-        runs-on: ubuntu-latest
+  test:
+    name: Run tests and validation
+    runs-on: ubuntu-latest
 
-        steps:
-            - name: Checkout repository
-              uses: actions/checkout@v7
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
 
-            - name: Set up uv
-              uses: astral-sh/setup-uv@v10.3.3
-              with:
-                  version: "0.13.9"
-                  enable-cache: true
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: "0.13.9"
+          enable-cache: true
 
-            - name: Install Python 3.14
-              run: uv python install 3.14
+      - name: Install Python 3.14
+        run: uv python install 3.14
 
-            - name: Install dependencies
-              run: uv sync --locked --dev
+      - name: Install dependencies
+        run: uv sync --locked --dev
 
-            - name: Run pytest suite
-              run: uv run pytest
+      - name: Run pytest suite
+        run: uv run pytest
 
-            - name: Verify package distribution build
-              run: uv build
+      - name: Verify package distribution build
+        run: uv build
 
-    docker-build-test:
-        name: Build Docker image and smoke test
-        runs-on: ubuntu-latest
-        needs: test
+  docker-build-test:
+    name: Build Docker image and smoke test
+    runs-on: ubuntu-latest
+    needs: test
 
-        steps:
-            - name: Checkout repository
-              uses: actions/checkout@v7
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
 
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
 
-            - name: Build Docker image locally
-              uses: docker/build-push-action@v7
-              with:
-                  context: .
-                  platforms: linux/amd64
-                  load: true
-                  tags: daretirbot:test
-                  cache-from: type=gha
-                  cache-to: type=gha,mode=max
+      - name: Build Docker image locally
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: daretirbot:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-            - name: Container smoke test
-              run: |
-                  docker run --rm daretirbot:test python -c "import daretirbot; print(f'Container import verified: {daretirbot.__name__}')"
+      - name: Container smoke test
+        run: |
+          docker run --rm daretirbot:test python -c "import daretirbot; print(f'Container import verified: {daretirbot.__name__}')"
