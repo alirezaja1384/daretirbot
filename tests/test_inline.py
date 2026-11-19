@@ -12,12 +12,14 @@ try:
         InputTextMessageContent,
     )
     from daretirbot.inline import (
+        GITHUB_REPO_URL,
         RANDOM_RESULT_ID,
         build_door_article_result,
         build_random_placeholder_result,
         handle_inline_query,
         handle_inline_sent_to_bot,
         handle_random_chosen,
+        handle_start,
     )
 
     AIOGRAM_AVAILABLE = True
@@ -142,3 +144,32 @@ class TestInline(unittest.IsolatedAsyncioTestCase):
         reply_args, _ = mock_message.reply.call_args
         self.assertIn("اگه در این حد نمی‌دونی", reply_args[0])
         self.assertIn("بذاری", reply_args[0])
+
+    @unittest.skipUnless(AIOGRAM_AVAILABLE, "aiogram is required for this test")
+    async def test_handle_start_mentions_github_repo(self) -> None:
+        """Start/help command answers with bot usage, info, and GitHub repo link."""
+        mock_bot = MagicMock()
+        mock_bot_user = MagicMock()
+        mock_bot_user.username = "daretirbot"
+        mock_bot.get_me = AsyncMock(return_value=mock_bot_user)
+
+        mock_message = MagicMock()
+        mock_message.answer = AsyncMock()
+
+        await handle_start(mock_message, mock_bot)
+
+        mock_message.answer.assert_called_once()
+        text_arg, kwargs = mock_message.answer.call_args[0][0], mock_message.answer.call_args[1]
+        self.assertIn(GITHUB_REPO_URL, text_arg)
+        self.assertIn("گیت‌هاب", text_arg)
+
+        reply_markup = kwargs.get("reply_markup")
+        self.assertIsNotNone(reply_markup)
+        all_button_urls = [
+            btn.url
+            for row in reply_markup.inline_keyboard
+            for btn in row
+            if btn.url
+        ]
+        self.assertIn(GITHUB_REPO_URL, all_button_urls)
+

@@ -27,6 +27,7 @@ router = Router(name="daret_inline")
 RANDOM_RESULT_ID = "random_door"
 RANDOM_KEYWORDS = {"random", "شانسی", "شانس"}
 PAGE_SIZE = 40
+GITHUB_REPO_URL = "https://github.com/alirezaja1384/daretirbot"
 
 
 def build_door_article_result(door: Door) -> InlineQueryResultArticle:
@@ -102,9 +103,12 @@ async def handle_start(message: Message, bot: Bot) -> None:
         "💡 بعدش می‌تونی اسم در مورد نظرت رو سرچ کنی (مثلاً «باجه تلفن» یا «پراید») "
         "یا گزینه <b>🎲 یه در شانسی</b> رو انتخاب کنی.\n\n"
         "ℹ️ <b>درباره این پروژه:</b>\n"
-        "این ربات یک پروژه مستقل است و پروژه رسمی daret.ir نیست؛ بلکه بر اساس و با الهام از محتوای "
+        "این ربات یک پروژه مستقل و متن‌باز است و پروژه رسمی daret.ir نیست؛ بلکه بر اساس و با الهام از محتوای "
         "وب‌سایت <a href=\"https://daret.ir/\">daret.ir</a> ساخته شده و تمامی حقوق، محتوا و کپی‌رایت "
-        "متعلق به سازندگان وب‌سایت دَرِت (<a href=\"https://haashemi.dev/\">haashemi.dev</a>) محفوظ می‌باشد."
+        "متعلق به سازندگان وب‌سایت دَرِت (<a href=\"https://haashemi.dev/\">haashemi.dev</a>) محفوظ می‌باشد.\n\n"
+        "⭐ <b>گیت‌هاب و سورس‌کد:</b>\n"
+        f"کدهای این ربات به صورت متن‌باز در گیت‌هاب منتشر شده است:\n"
+        f"🐙 <a href=\"{GITHUB_REPO_URL}\">GitHub: alirezaja1384/daretirbot</a>"
     )
 
     keyboard = InlineKeyboardMarkup(
@@ -119,7 +123,11 @@ async def handle_start(message: Message, bot: Bot) -> None:
                 InlineKeyboardButton(
                     text="🌐 دیدن سایت daret.ir 🔗",
                     url="https://daret.ir/",
-                )
+                ),
+                InlineKeyboardButton(
+                    text="⭐ گیت‌هاب پروژه 🐙",
+                    url=GITHUB_REPO_URL,
+                ),
             ],
         ]
     )
@@ -141,7 +149,7 @@ async def handle_inline_sent_to_bot(message: Message, bot: Bot) -> None:
 
     if is_our_bot or is_door_text or message.via_bot:
         reply_text = (
-            "🚪 اگه در این حد نمی‌دونی چطور باید ازش استفاده کنی، شاید بهتر باشه درت خودتو بذاری 🫪"
+            "🚪 اگه در این حد نمی‌دونی چطور باید ازش استفاده کنی، شاید بهتر باشه درتو بذاری 🫪"
         )
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
