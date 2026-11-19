@@ -1,0 +1,23 @@
+[project]
+name = "daretirbot"
+version = "0.1.0"
+description = "Unofficial Telegram inline bot for daret.ir"
+readme = "README.md"
+authors = [{ name = "Alireza Jafari", email = "alirezaja1384@gmail.com" }]
+requires-python = ">=3.14"
+dependencies = [
+    "aiogram>=3.15.0",
+    "beautifulsoup4>=4.12.0",
+    "httpx>=0.28.1",
+    "python-decouple>=3.8",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.3.0", "pytest-asyncio>=0.24.0"]
+
+[project.scripts]
+daretirbot = "daretirbot:main"
+
+[build-system]
+requires = ["uv_build>=0.13.8,<0.14.0"]
+build-backend = "uv_build"
